@@ -109,7 +109,7 @@ def capture_model_graph(model, model_args, *, key, latent_addresses=()):
     seed(_record)(key, *model_args)
     sites = recorder.sites
 
-    # Reference (concrete) choice values, used for the edge autodiff below.
+    # Reference (concrete) choice values, used to stage the edge jaxpr below.
     ref_trace = seed(model.simulate)(key, *model_args)
     choices = {a: ref_trace.get_choices()[a] for a in sites}
 
@@ -125,50 +125,61 @@ def capture_model_graph(model, model_args, *, key, latent_addresses=()):
             observed=a not in latent,
         )
 
-    # -- edges via autodiff provenance over per-site log-densities ----------
-    # Differentiate only through real-valued choices; discrete choices are held
-    # fixed (autodiff cannot trace dependencies through them). We flatten with
-    # an explicit, fixed ordering so jacobian columns map back to addresses
-    # unambiguously.
-    float_addrs = [
-        a for a in addrs
-        if jnp.issubdtype(jnp.result_type(choices[a]), jnp.floating)
-    ]
-    fixed = {a: choices[a] for a in addrs if a not in float_addrs}
-    shapes = {a: jnp.asarray(choices[a]).shape for a in float_addrs}
-    offsets, start = {}, 0
-    for a in float_addrs:
-        size = int(jnp.asarray(choices[a]).size)
-        offsets[a] = (start, start + size)
-        start += size
+    # -- edges via jaxpr provenance (dataflow reachability) -----------------
+    # Pass each site's value as a separate argument so each maps to its own
+    # jaxpr invar (model params are closed over -> constants, not sources), and
+    # return per-site log-densities as separate outputs. Then propagate a
+    # provenance set through the jaxpr: an edge A -> B exists iff site A's value
+    # reaches site B's log-density. Unlike autodiff, this is pure dataflow and
+    # so captures dependencies through *discrete* parents too.
+    def per_site_logps(*choice_values):
+        ch = {a: v for a, v in zip(addrs, choice_values)}
+        handler = _run_with_handler(_PerSiteLogp(ch), source, *model_args)
+        return tuple(handler.logps[a] for a in addrs)
 
-    def make_choices(flat_choices):
-        ch = dict(fixed)
-        for a in float_addrs:
-            lo, hi = offsets[a]
-            ch[a] = jnp.reshape(flat_choices[lo:hi], shapes[a])
-        return ch
+    ordered = [choices[a] for a in addrs]
+    leaf_counts = [len(jax.tree_util.tree_leaves(v)) for v in ordered]
+    # invar -> address, in flattened-argument order
+    invar_addr = [a for a, n in zip(addrs, leaf_counts) for _ in range(n)]
 
-    def per_site_logps(flat_choices):
-        handler = _run_with_handler(
-            _PerSiteLogp(make_choices(flat_choices)), source, *model_args
-        )
-        return jnp.stack([handler.logps[a] for a in addrs])
-
-    if start:  # there is at least one differentiable choice dimension
-        flat0 = jnp.concatenate(
-            [jnp.ravel(jnp.asarray(choices[a])) for a in float_addrs]
-        )
-        jac = jax.jacrev(per_site_logps)(flat0)  # (n_sites, n_float_dims)
-        for j, b in enumerate(addrs):
-            for a in float_addrs:
-                if a == b:
-                    continue
-                lo, hi = offsets[a]
-                if bool(jnp.any(jnp.abs(jac[j, lo:hi]) > 1e-9)):
-                    graph.add_edge(a, b)
+    jaxpr = jax.make_jaxpr(per_site_logps)(*ordered).jaxpr
+    for A, B in _provenance_edges(jaxpr, invar_addr, addrs):
+        graph.add_edge(A, B)
 
     return graph
+
+
+def _provenance_edges(jaxpr, invar_addr, out_addr):
+    """Reachability-based provenance over a jaxpr.
+
+    Args:
+        jaxpr: the staged jaxpr of the per-site log-density function.
+        invar_addr: address tagging each ``jaxpr.invars`` entry (flattened order).
+        out_addr: address for each ``jaxpr.outvars`` entry (the per-site logps).
+
+    Yields ``(A, B)`` pairs meaning site ``B``'s log-density depends on ``A``.
+    """
+    from jax.extend.core import Literal
+
+    deps: Dict[Any, frozenset] = {}
+    for var, addr in zip(jaxpr.invars, invar_addr):
+        deps[var] = frozenset({addr})
+
+    def prov(v):
+        if isinstance(v, Literal):
+            return frozenset()
+        return deps.get(v, frozenset())
+
+    for eqn in jaxpr.eqns:
+        srcs = frozenset().union(*(prov(v) for v in eqn.invars)) if eqn.invars \
+            else frozenset()
+        for ov in eqn.outvars:
+            deps[ov] = srcs
+
+    for outvar, b in zip(jaxpr.outvars, out_addr):
+        for a in prov(outvar):
+            if a != b:
+                yield (a, b)
 
 
 class GraphicalModelLearner(SviLearner):
