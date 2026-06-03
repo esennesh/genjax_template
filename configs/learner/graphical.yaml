@@ -1,9 +1,8 @@
-defaults:
-  - optim: adam
-
 _target_: src.learner.graphical.GraphicalModelLearner
 
+# Trains like the SVI learner (ELBO via GenJAX's GFI + ADEV) but additionally
+# captures the model's static graph structure at setup (nodes = sample sites,
+# edges = value dependencies). See GraphicalModelLearner.
+lr: 0.001
+num_particles: 4
 rng: 123
-tracer:
-  _target_: src.inference.tracer.ELBOTracer
-  num_particles: 4
