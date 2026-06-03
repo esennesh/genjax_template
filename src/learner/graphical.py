@@ -32,6 +32,7 @@ from genjax.core import handler_stack
 from genjax.pjax import seed
 
 from .svi import SviLearner
+from .objectives import elbo
 from src.data import DataModule
 
 
@@ -185,8 +186,10 @@ def _provenance_edges(jaxpr, invar_addr, out_addr):
 class GraphicalModelLearner(SviLearner):
     """SVI learner that also captures the model's static graph structure."""
 
-    def __init__(self, data_shape, guide, model, optim, num_particles=1, rng=0):
-        super().__init__(data_shape, guide, model, optim, num_particles, rng)
+    def __init__(self, data_shape, guide, model, optim, num_particles=1, rng=0,
+                 objective=elbo):
+        super().__init__(data_shape, guide, model, optim, num_particles, rng,
+                         objective)
         self._graph = None
         self._guide_addresses = ()
 

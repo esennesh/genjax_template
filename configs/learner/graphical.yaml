@@ -1,5 +1,6 @@
 defaults:
   - optim: adam
+  - objective: elbo
 
 _target_: src.learner.graphical.GraphicalModelLearner
 # Trains like the SVI learner (ELBO via GenJAX's GFI + ADEV) but additionally
