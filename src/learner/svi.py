@@ -23,6 +23,7 @@ from genjax.adev import expectation
 from genjax.pjax import seed
 
 from .learner import ParamLearner
+from .objectives import elbo
 from src.data import DataModule
 
 
@@ -32,7 +33,8 @@ def _flatten_batch(data) -> jnp.ndarray:
 
 
 class SviLearner(ParamLearner):
-    def __init__(self, data_shape, guide, model, optim, num_particles=1, rng=0):
+    def __init__(self, data_shape, guide, model, optim, num_particles=1, rng=0,
+                 objective=elbo):
         if not isinstance(rng, jax.Array):
             rng = random.key(rng)
         self._rng = rng
@@ -40,6 +42,9 @@ class SviLearner(ParamLearner):
         self._guide_factory = guide
         self.num_particles = num_particles
         self.optimizer = optim
+        # Reduction from per-particle log-weights to the scalar bound (e.g. ELBO
+        # or IWAE); selected via the `objective` Hydra config group.
+        self._objective_fn = objective
 
         self._model = None
         self._guide = None
@@ -55,7 +60,7 @@ class SviLearner(ParamLearner):
         self._model, self._guide = model, guide
 
         n_particles = self.num_particles
-        log_n = jnp.log(float(n_particles))
+        objective_fn = self._objective_fn
 
         def single_log_weight(x, params):
             # ELBO log-weight: log p(x, z) - log q(z | x), with z ~ q.
@@ -66,15 +71,14 @@ class SviLearner(ParamLearner):
 
         @expectation
         def objective(x, params):
-            if n_particles == 1:
-                return single_log_weight(x, params)
             log_weights = jnp.stack(
                 [single_log_weight(x, params) for _ in range(n_particles)]
             )
-            return jnp.mean(log_weights, axis=0)
+            # Reduce the per-particle log-weights to the configured bound.
+            return objective_fn(log_weights)
 
-        # One seeded pass producing both the ELBO value and its gradient w.r.t.
-        # params (shared randomness), vmapped across the batch.
+        # One seeded pass producing both the bound's value and its gradient
+        # w.r.t. params (shared randomness), vmapped across the batch.
         def value_and_grad(key, x, params):
             return seed(
                 lambda x, p: (
