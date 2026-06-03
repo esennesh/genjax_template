@@ -32,6 +32,5 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-# Local editable checkout for co-development. For a shareable template, switch to:
-#   genjax = { git = "ssh://git@github.com/Astera-org/genjax.git", branch = "develop" }
-genjax = { path = "../genjax", editable = true }
+genjax = { git = "https://github.com/Astera-org/genjax.git",
+           branch = "develop" }
