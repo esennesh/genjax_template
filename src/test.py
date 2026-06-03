@@ -2,7 +2,6 @@ import argparse
 import collections
 import hydra
 import logging
-from numpyro import optim
 from omegaconf import DictConfig
 import os
 import rootutils

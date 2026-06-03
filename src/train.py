@@ -1,12 +1,10 @@
-import argparse
-import collections
 import hydra
+import jax
 import logging
-from numpyro import optim
 from omegaconf import DictConfig
 import os
 import rootutils
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -47,7 +45,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                                                     guide=guide, model=model)
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: BaseTrainer = hydra.utils.instantiate(cfg.trainer, logger=log)
+    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, logger=log)
 
     object_dict = {
         "cfg": cfg,
@@ -60,7 +58,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("train"):
         log.info("Starting training!")
         if cfg.get("debug", False):
-            numpyro.enable_validation()
             jax.config.update("jax_check_tracer_leaks", True)
             jax.config.update("jax_debug_nans", True)
             with jax.disable_jit():

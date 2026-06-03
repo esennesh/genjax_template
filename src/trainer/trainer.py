@@ -5,7 +5,6 @@ import jax
 from jax.random import PRNGKey
 import math
 import numpy as np
-from numpyro.infer import SVI
 import os
 from rich.progress import track
 from typing import Callable, List, Optional

@@ -1,4 +1,4 @@
-_target_: src.model.model.mnist_model
+_target_: src.model.model.make_mnist_model
 _partial_: true
 hidden_dim: 400
 z_dim: 100
