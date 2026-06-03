@@ -55,7 +55,7 @@ class SviLearner(ParamLearner):
     # -- construction (deferred until the data shape is known) ----------------
 
     def _build(self, out_dim):
-        model, decoder_init, _ = self._model_factory(out_dim)
+        model, decoder_init = self._model_factory(out_dim)
         guide, encoder_init = self._guide_factory(out_dim)
         self._model, self._guide = model, guide
 

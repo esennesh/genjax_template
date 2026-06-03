@@ -51,7 +51,7 @@ def decoder(hidden_dim, out_dim):
 def make_mnist_model(out_dim, hidden_dim=400, z_dim=100):
     """Build the per-example VAE model ``p(x, z)``.
 
-    Returns ``(model, decoder_init, z_dim)`` where ``model(decoder_params)`` is a
+    Returns ``(model, decoder_init)`` where ``model(decoder_params)`` is a
     ``@gen`` program sampling ``z ~ N(0, I)`` and ``x ~ Bernoulli(decode(z))``,
     and ``decoder_init(key)`` initializes the decoder parameters.
     """
@@ -70,7 +70,7 @@ def make_mnist_model(out_dim, hidden_dim=400, z_dim=100):
         _, params = dec_init(key, (z_dim,))
         return params
 
-    return model, decoder_init, z_dim
+    return model, decoder_init
 
 
 def make_mnist_guide(out_dim, hidden_dim=400, z_dim=100):
