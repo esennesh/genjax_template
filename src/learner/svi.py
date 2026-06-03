@@ -32,15 +32,14 @@ def _flatten_batch(data) -> jnp.ndarray:
 
 
 class SviLearner(ParamLearner):
-    def __init__(self, data_shape, guide, lr, model, num_particles=1, rng=0):
+    def __init__(self, data_shape, guide, model, optim, num_particles=1, rng=0):
         if not isinstance(rng, jax.Array):
             rng = random.key(rng)
         self._rng = rng
         self._model_factory = model
         self._guide_factory = guide
-        self.lr = lr
         self.num_particles = num_particles
-        self.optimizer = optax.adam(lr)
+        self.optimizer = optim
 
         self._model = None
         self._guide = None

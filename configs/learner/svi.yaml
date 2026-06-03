@@ -1,5 +1,6 @@
-_target_: src.learner.SviLearner
+defaults:
+  - optimizer: adam
 
-lr: 0.001
+_target_: src.learner.SviLearner
 num_particles: 4
 rng: 123
