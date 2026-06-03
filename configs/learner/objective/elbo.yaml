@@ -1,0 +1,3 @@
+# Multi-sample ELBO: mean of the per-particle log-weights.
+_target_: src.learner.objectives.elbo
+_partial_: true

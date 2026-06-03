@@ -1,0 +1,3 @@
+# Importance-weighted bound (IWAE): log-mean-exp of the per-particle log-weights.
+_target_: src.learner.objectives.iwae
+_partial_: true
