@@ -68,10 +68,10 @@ class SviLearner(ParamLearner):
         def objective(x, params):
             if n_particles == 1:
                 return single_log_weight(x, params)
-            weights = jnp.stack(
+            log_weights = jnp.stack(
                 [single_log_weight(x, params) for _ in range(n_particles)]
             )
-            return jax.scipy.special.logsumexp(weights) - log_n  # IWAE bound
+            return jnp.mean(log_weights, axis=0)
 
         # One seeded pass producing both the ELBO value and its gradient w.r.t.
         # params (shared randomness), vmapped across the batch.
