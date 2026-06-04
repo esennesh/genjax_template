@@ -12,7 +12,22 @@ from typing import Callable, List, Optional
 from src.data import DataModule
 from src.learner import ParamLearner
 from src.logger import TensorboardWriter
-from src.utils import flatten, inf_loop, MetricTracker, serialize_key, unserialize_key
+from src.utils import inf_loop, MetricTracker, serialize_key, unserialize_key
+
+def _leaf_name(path):
+    """Render a jax pytree key-path as a readable, '/'-joined tag.
+
+    Handles dict keys, attribute names (e.g. flax NNX `VariableState.value`) and
+    sequence indices, so it works regardless of how parameters are nested.
+    """
+    parts = []
+    for k in path:
+        key = getattr(k, "key", None)
+        if key is not None:
+            parts.append(str(key))
+        else:
+            parts.append(str(getattr(k, "name", getattr(k, "idx", k))))
+    return "/".join(parts)
 
 def _progress(batch_idx, data_loader):
     base = '[{}/{} ({:.0f}%)]'
@@ -220,7 +235,10 @@ class Trainer:
             for met in self.metrics:
                 self.valid_metrics.update(met, metrics[met])
 
-        # add histogram of parameters to the tensorboard
-        for name, par in flatten(learner.parameters):
-            self.writer.add_histogram(name, np.asarray(par), bins="auto")
+        # add histogram of parameters to the tensorboard. Walk the parameter
+        # pytree's array leaves directly (works for any container -- dicts,
+        # flax NNX `State`, etc.); build a readable "/"-joined tag from the path.
+        for path, par in jax.tree_util.tree_leaves_with_path(learner.parameters):
+            self.writer.add_histogram(_leaf_name(path), np.asarray(par),
+                                      bins="auto")
         return self.valid_metrics.result()

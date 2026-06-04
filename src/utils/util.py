@@ -222,29 +222,6 @@ def task_wrapper(task_func: Callable) -> Callable:
 
     return wrap
 
-def flatten(collection, prefix=''):
-    if isinstance(collection, dict):
-        yield from flatten_dict(collection, prefix)
-    elif isinstance(collection, (list, tuple)):
-        yield from flatten_seq(collection, prefix)
-
-def flatten_dict(dic, prefix=''):
-    for k, v in dic.items():
-        k = str(k)
-        name = prefix + "$" + k if prefix else k
-        if isinstance(v, (list, tuple, dict)):
-            yield from flatten(v, prefix=name)
-        else:
-            yield (name, v)
-
-def flatten_seq(seq, prefix=''):
-    for i, elem in enumerate(seq):
-        name = prefix + "$" + str(i) if prefix else str(i)
-        if isinstance(elem, (list, tuple, dict)):
-            yield from flatten(elem, prefix=name)
-        else:
-            yield (name, elem)
-
 def ensure_dir(dirname):
     dirname = Path(dirname)
     if not dirname.is_dir():
