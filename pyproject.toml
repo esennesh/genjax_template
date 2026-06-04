@@ -3,8 +3,12 @@ name = "genjax-template"
 version = "0.2.0"
 description = "Template repository for deep probabilistic programming in Jax with GenJAX"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
+    # flax NNX backs the model/guide networks; flax 0.12 does not yet support
+    # Python 3.14 (linen dataclass processing breaks on PEP 749), hence the
+    # upper bound on requires-python above.
+    "flax>=0.12.0",
     "genjax",
     "graphviz>=0.21",
     "hydra-colorlog>=1.2.0",

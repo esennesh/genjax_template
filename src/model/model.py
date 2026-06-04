@@ -3,18 +3,23 @@
 This is the GenJAX port of the NumPyro VAE example. The model and guide are
 per-example ``@gen`` programs (the batch dimension is handled by vmapping in the
 learner, following the GenJAX amortized-inference idiom). Neural networks are
-built with ``jax.example_libraries.stax``; their parameters are managed
-explicitly by the learner and threaded in as generative-function arguments
-(GenJAX has no global parameter store, unlike ``numpyro.module``).
+Flax NNX modules; because GenJAX has no global parameter store (unlike
+``numpyro.module``), their parameters are managed explicitly by the learner and
+threaded in as generative-function arguments. The ``nnx_wrap`` bridge
+(:mod:`src.model.nnx_bridge`) converts each NNX module into an ``(apply, init)``
+pair: ``init`` yields the parameter pytree the learner optimizes, and ``apply``
+reconstitutes a live module from a parameter pytree via ``nnx.merge``.
 """
 
 import jax.numpy as jnp
-from jax.example_libraries import stax
+import flax.nnx as nnx
 
 from genjax import gen, tfp_distribution
 from genjax.adev import multivariate_normal_diag_reparam
 
 import tensorflow_probability.substrates.jax as tfp
+
+from .nnx_bridge import nnx_wrap
 
 tfd = tfp.distributions
 
@@ -27,25 +32,30 @@ bernoulli_probs = tfp_distribution(
 )
 
 
-def encoder(hidden_dim, z_dim):
-    return stax.serial(
-        stax.Dense(hidden_dim, W_init=stax.randn()),
-        stax.Softplus,
-        stax.FanOut(2),
-        stax.parallel(
-            stax.Dense(z_dim, W_init=stax.randn()),
-            stax.serial(stax.Dense(z_dim, W_init=stax.randn()), stax.Exp),
-        ),
-    )
+class Encoder(nnx.Module):
+    """Amortized inference network: image -> (z_loc, z_scale)."""
+
+    def __init__(self, in_dim, hidden_dim, z_dim, *, rngs):
+        self.hidden = nnx.Linear(in_dim, hidden_dim, rngs=rngs)
+        self.loc = nnx.Linear(hidden_dim, z_dim, rngs=rngs)
+        self.log_scale = nnx.Linear(hidden_dim, z_dim, rngs=rngs)
+
+    def __call__(self, x):
+        h = nnx.softplus(self.hidden(x))
+        # Scale is positive; parameterize it in log-space (cf. the stax `Exp`).
+        return self.loc(h), jnp.exp(self.log_scale(h))
 
 
-def decoder(hidden_dim, out_dim):
-    return stax.serial(
-        stax.Dense(hidden_dim, W_init=stax.randn()),
-        stax.Softplus,
-        stax.Dense(out_dim, W_init=stax.randn()),
-        stax.Sigmoid,
-    )
+class Decoder(nnx.Module):
+    """Generative network: latent z -> per-pixel Bernoulli probabilities."""
+
+    def __init__(self, z_dim, hidden_dim, out_dim, *, rngs):
+        self.hidden = nnx.Linear(z_dim, hidden_dim, rngs=rngs)
+        self.out = nnx.Linear(hidden_dim, out_dim, rngs=rngs)
+
+    def __call__(self, z):
+        h = nnx.softplus(self.hidden(z))
+        return nnx.sigmoid(self.out(h))
 
 
 def make_mnist_model(out_dim, hidden_dim=400, z_dim=100):
@@ -55,7 +65,9 @@ def make_mnist_model(out_dim, hidden_dim=400, z_dim=100):
     ``@gen`` program sampling ``z ~ N(0, I)`` and ``x ~ Bernoulli(decode(z))``,
     and ``decoder_init(key)`` initializes the decoder parameters.
     """
-    dec_init, decode = decoder(hidden_dim, out_dim)
+    decode, decoder_init = nnx_wrap(
+        lambda key: Decoder(z_dim, hidden_dim, out_dim, rngs=nnx.Rngs(key))
+    )
     z_loc = jnp.zeros((z_dim,), dtype=jnp.float32)
     z_scale = jnp.ones((z_dim,), dtype=jnp.float32)
 
@@ -65,10 +77,6 @@ def make_mnist_model(out_dim, hidden_dim=400, z_dim=100):
         img_probs = decode(decoder_params, z)
         bernoulli_probs(img_probs) @ "obs"
         return img_probs
-
-    def decoder_init(key):
-        _, params = dec_init(key, (z_dim,))
-        return params
 
     return model, decoder_init
 
@@ -80,15 +88,13 @@ def make_mnist_guide(out_dim, hidden_dim=400, z_dim=100):
     single (flattened) image to ``(z_loc, z_scale)`` and samples ``z`` via the
     reparameterized normal, and ``encoder_init(key)`` initializes the encoder.
     """
-    enc_init, encode = encoder(hidden_dim, z_dim)
+    encode, encoder_init = nnx_wrap(
+        lambda key: Encoder(out_dim, hidden_dim, z_dim, rngs=nnx.Rngs(key))
+    )
 
     @gen
     def guide(x, encoder_params):
         z_loc, z_scale = encode(encoder_params, x)
         multivariate_normal_diag_reparam(z_loc, z_scale) @ "z"
-
-    def encoder_init(key):
-        _, params = enc_init(key, (out_dim,))
-        return params
 
     return guide, encoder_init
